@@ -233,4 +233,12 @@ whale_pet/
 - PyQt5 5.15.4
 - 2560×1600 屏幕实测：透明背景、右下角启动、置顶、右键菜单正常
 
+## 致谢
+
+- 项目作者 / 小鲸鱼设定：**anastasia-kitty** · [GitHub](https://github.com/anastasia-kitty)
+- 3D 建模、软件渲染、桌宠窗口与交互代码协作：**DeepSeek Harness（deepseek-flash）**
+- 项目仓库：[anastasia-kitty/whale-pet-3d](https://github.com/anastasia-kitty/whale-pet-3d)
+
+谢谢喜欢这只小鲸鱼，欢迎来仓库看看 🐳
+
 后续如果要加点击反应、喂食、拖拽惯性或语音气泡，可以在这个 3D 形象层上继续扩展。
