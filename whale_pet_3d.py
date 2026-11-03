@@ -9,10 +9,10 @@ DeepSeek 小鲸鱼桌宠 · 3D 版
     · 真正的 3D 网格（不是贴图 / 序列帧），可以旋转查看各个角度
     · 纯 PyQt5 + QPainter 软件渲染，不需要 OpenGL、numpy 或模型文件
     · 透明背景、右下角启动、始终置顶、无任务栏图标
-    · 支持拍拍、喂鱼、喷水三种互动
+    · 支持拍拍、喂鱼、喷水、转圈四种互动
 
 操作：
-    · 鼠标移入：显示拍拍 / 喂鱼 / 喷水操作条
+    · 鼠标移入：显示拍拍 / 喂鱼 / 喷水 / 转圈操作条
     · 左键拖动：旋转小鲸鱼
     · 右键拖动 / Shift+左键拖动：移动桌宠
     · 滚轮：缩放
@@ -36,7 +36,7 @@ from PyQt5.QtCore import (
     Qt,
     QTimer,
 )
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import QApplication, QMenu, QWidget
 
 from whale3d import draw_shadow, face_anchors, get_renderer
@@ -69,6 +69,7 @@ ACTION_LABELS = (
     ("pat", "拍拍"),
     ("feed", "喂鱼"),
     ("spray", "喷水"),
+    ("spin", "转圈"),
 )
 ACTION_BAR_TOP = 5.0
 ACTION_BAR_HEIGHT = 28.0
@@ -104,6 +105,9 @@ class WhalePet(QWidget):
         self._bar_alpha = 0.0
         self._actions_grace_until = 0.0
         self._button_pressed = False
+        self._spin_frames = []
+        self._spin_key = None
+        self._spin_duration = 1.35
 
         self._yaw = INITIAL_YAW
         self._pitch = INITIAL_PITCH
@@ -162,7 +166,8 @@ class WhalePet(QWidget):
     def _tick(self) -> None:
         now = time.monotonic()
         need_update = False
-        if self._auto_spin and not self._dragging:
+        was_spin = self._effects.name == "spin"
+        if self._auto_spin and not self._dragging and not was_spin:
             self._yaw = (self._yaw + AUTO_SPIN_SPEED) % 360.0
             need_update = True
         if IDLE_BOB and not self._dragging and not self._auto_spin:
@@ -221,8 +226,24 @@ class WhalePet(QWidget):
         nod = self._effects.nod_offset(now)
         y_shift = bob + nod
 
-        target = QRectF(0.0, y_shift, float(PET_SIZE), float(PET_SIZE))
-        painter.drawImage(target, image)
+        if self._effects.name == "spin" and self._spin_frames:
+            progress = (now - self._effects.start) / self._spin_duration
+            progress = max(0.0, min(1.0, progress))
+            index = min(
+                len(self._spin_frames) - 1,
+                int(progress * len(self._spin_frames)),
+            )
+            hop = -8.0 * math.sin(math.pi * progress)
+            target = QRectF(
+                0.0,
+                y_shift + hop,
+                float(PET_SIZE),
+                float(PET_SIZE),
+            )
+            painter.drawImage(target, self._spin_frames[index])
+        else:
+            target = QRectF(0.0, y_shift, float(PET_SIZE), float(PET_SIZE))
+            painter.drawImage(target, image)
 
         anchors = face_anchors(
             PET_SIZE,
@@ -337,12 +358,68 @@ class WhalePet(QWidget):
     # ------------------------------------------------------------------
     # 互动
     # ------------------------------------------------------------------
+    def _build_spin_frames(self) -> None:
+        """把当前视角的缓存图预渲染成 36 帧转圈动画。"""
+        image, _render_size = self._current_image()
+        dpr = max(1.0, float(image.devicePixelRatio()))
+        key = (
+            round(self._yaw, 1),
+            round(self._pitch, 1),
+            round(self._zoom, 3),
+            round(dpr, 2),
+        )
+        if self._spin_key == key and self._spin_frames:
+            return
+        px = max(2, int(round(PET_SIZE * dpr)))
+        count = 36
+        frames = []
+        for i in range(count):
+            u = i / float(count - 1)
+            ease = u * u * (3.0 - 2.0 * u)
+            angle = 360.0 * ease
+            frame = QImage(px, px, QImage.Format_ARGB32_Premultiplied)
+            frame.setDevicePixelRatio(dpr)
+            frame.fill(Qt.transparent)
+
+            p = QPainter(frame)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+            def draw_at(deg: float, opacity: float) -> None:
+                p.save()
+                p.setOpacity(opacity)
+                p.translate(PET_SIZE * 0.5, PET_SIZE * 0.5)
+                p.rotate(deg)
+                p.scale(0.91, 0.91)
+                p.translate(-PET_SIZE * 0.5, -PET_SIZE * 0.5)
+                p.drawImage(
+                    QRectF(0.0, 0.0, float(PET_SIZE), float(PET_SIZE)),
+                    image,
+                )
+                p.restore()
+
+            # 一点点残影，让转圈更有速度感
+            draw_at(angle - 9.0, 0.16)
+            draw_at(angle, 1.0)
+            p.end()
+            frames.append(frame)
+        self._spin_frames = frames
+        self._spin_key = key
+
     def _trigger_effect(self, name: str) -> None:
-        if self._effects.trigger(name):
-            self._hide_hint()
-            self._button_pressed = False
-            self._hover_action = None
-            self.update()
+        if name == "spin":
+            if self._effects.active:
+                return
+            self._build_spin_frames()
+            if not self._effects.trigger("spin"):
+                return
+        else:
+            if not self._effects.trigger(name):
+                return
+        self._hide_hint()
+        self._button_pressed = False
+        self._hover_action = None
+        self.update()
 
     def _update_hover_action(self, pos) -> None:
         action = self._action_at(pos)
@@ -359,6 +436,9 @@ class WhalePet(QWidget):
     # ------------------------------------------------------------------
     def mousePressEvent(self, event) -> None:
         self._hide_hint()
+        if self._effects.name == "spin" and event.button() == Qt.LeftButton:
+            event.accept()
+            return
         self._press_global = event.globalPos()
         self._last_global = event.globalPos()
         self._right_moved = False
@@ -468,13 +548,17 @@ class WhalePet(QWidget):
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
-            self._reset_view()
+            if self._effects.name != "spin":
+                self._reset_view()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event) -> None:
         self._hide_hint()
+        if self._effects.name == "spin":
+            event.accept()
+            return
         steps = event.angleDelta().y() / 120.0
         if abs(steps) > 0.01:
             self._zoom = min(
@@ -545,6 +629,7 @@ class WhalePet(QWidget):
             menu.addAction("拍拍"): "pat",
             menu.addAction("喂鱼"): "feed",
             menu.addAction("喷水"): "spray",
+            menu.addAction("转圈"): "spin",
         }
         menu.addSeparator()
         spin_action = menu.addAction("自动旋转展示")

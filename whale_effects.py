@@ -6,6 +6,7 @@
   - 拍拍：眯眼 + 爱心
   - 喂鱼：小鱼干落下 + 点头 + tokens 气泡
   - 喷水：头顶浅蓝色水珠喷泉
+  - 转圈：画面旋转动画 + 星星（旋转帧由窗口预生成）
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ EFFECT_DURATIONS = {
     "pat": 1.40,
     "feed": 3.40,
     "spray": 3.00,
+    "spin": 1.35,
 }
 
 PINK = (255, 115, 160)
@@ -109,6 +111,8 @@ class WhaleEffects:
             self._draw_feed(painter, anchors, y_shift, elapsed)
         elif self.name == "spray":
             self._draw_spray(painter, anchors, y_shift, elapsed)
+        elif self.name == "spin":
+            self._draw_spin(painter, anchors, y_shift, elapsed)
         painter.restore()
 
     # ------------------------------------------------------------------
@@ -292,6 +296,44 @@ class WhaleEffects:
             Qt.AlignCenter,
             "tokens + 1M💗\n感谢投喂！",
         )
+
+    # ------------------------------------------------------------------
+    # 转圈
+    # ------------------------------------------------------------------
+    def _draw_spin(self, painter, anchors, y_shift, t) -> None:
+        life = EFFECT_DURATIONS["spin"]
+        p = max(0.0, min(1.0, t / life))
+        alpha = _smoothstep(0.0, 0.14, t) * (1.0 - _smoothstep(0.95, 1.30, t))
+        if alpha <= 0.01:
+            return
+
+        cx = anchors["head_top"][0]
+        cy = anchors["head_top"][1] + 68.0 + y_shift
+        for i in range(8):
+            angle = i * math.tau / 8.0 + p * math.tau * 1.15
+            radius = 66.0 + 16.0 * math.sin(p * math.pi * 2.0 + i * 1.7)
+            x = cx + math.cos(angle) * radius
+            y = cy + math.sin(angle) * radius * 0.52
+            size = 4.0 + 2.8 * (0.5 + 0.5 * math.sin(p * 9.0 + i))
+            color = (255, 209, 92) if i % 2 == 0 else WATER
+            self._draw_sparkle(
+                painter,
+                x,
+                y,
+                size,
+                QColor(color[0], color[1], color[2], int(230 * alpha)),
+            )
+
+    def _draw_sparkle(self, painter, x, y, size, color) -> None:
+        path = QPainterPath()
+        path.moveTo(x, y - size)
+        path.quadTo(x + size * 0.18, y - size * 0.18, x + size, y)
+        path.quadTo(x + size * 0.18, y + size * 0.18, x, y + size)
+        path.quadTo(x - size * 0.18, y + size * 0.18, x - size, y)
+        path.quadTo(x - size * 0.18, y - size * 0.18, x, y - size)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawPath(path)
 
     # ------------------------------------------------------------------
     # 喷水
