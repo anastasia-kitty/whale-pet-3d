@@ -9,13 +9,15 @@ DeepSeek 小鲸鱼桌宠 · 3D 版
     · 真正的 3D 网格（不是贴图 / 序列帧），可以旋转查看各个角度
     · 纯 PyQt5 + QPainter 软件渲染，不需要 OpenGL、numpy 或模型文件
     · 透明背景、右下角启动、始终置顶、无任务栏图标
+    · 支持拍拍、喂鱼、喷水三种互动
 
 操作：
+    · 鼠标移入：显示拍拍 / 喂鱼 / 喷水操作条
     · 左键拖动：旋转小鲸鱼
     · 右键拖动 / Shift+左键拖动：移动桌宠
     · 滚轮：缩放
     · 双击：回到初始视角
-    · 右键单击：菜单（自动旋转 / 复位 / 回右下角 / 退出）
+    · 右键单击：菜单（互动 / 自动旋转 / 复位 / 回右下角 / 退出）
 """
 
 from __future__ import annotations
@@ -37,7 +39,8 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import QApplication, QMenu, QWidget
 
-from whale3d import draw_shadow, get_renderer
+from whale3d import draw_shadow, face_anchors, get_renderer
+from whale_effects import WhaleEffects
 
 # ---------------------------------------------------------------------------
 # 可调参数
@@ -61,6 +64,17 @@ AUTO_SPIN_SPEED = 0.75         # 自动旋转速度（度 / 帧）
 # 拖动时用稍低一点的分辨率渲染，松手后恢复到全分辨率
 DRAG_RENDER_SCALE = 0.84
 
+# 悬停操作条
+ACTION_LABELS = (
+    ("pat", "拍拍"),
+    ("feed", "喂鱼"),
+    ("spray", "喷水"),
+)
+ACTION_BAR_TOP = 5.0
+ACTION_BAR_HEIGHT = 28.0
+ACTION_BAR_CHIP_WIDTH = 64.0
+ACTION_BAR_GAP = 8.0
+
 
 class WhalePet(QWidget):
     def __init__(self) -> None:
@@ -77,10 +91,17 @@ class WhalePet(QWidget):
         self.setFixedSize(PET_SIZE, PET_SIZE)
         self.setCursor(Qt.OpenHandCursor)
         self.setContextMenuPolicy(Qt.NoContextMenu)
+        self.setMouseTracking(True)
 
         self._renderer = get_renderer()
+        self._effects = WhaleEffects()
         self._clock = QElapsedTimer()
         self._clock.start()
+
+        self._hover_inside = False
+        self._hover_action = None
+        self._bar_alpha = 0.0
+        self._button_pressed = False
 
         self._yaw = INITIAL_YAW
         self._pitch = INITIAL_PITCH
@@ -146,6 +167,20 @@ class WhalePet(QWidget):
             need_update = True
         if now < self._hint_until:
             need_update = True
+
+        was_active = self._effects.active
+        if self._effects.tick(now):
+            need_update = True
+        elif was_active:
+            need_update = True
+
+        target = 1.0 if (self._hover_inside and not self._effects.active) else 0.0
+        if abs(self._bar_alpha - target) > 0.01:
+            self._bar_alpha += (target - self._bar_alpha) * 0.28
+            if abs(self._bar_alpha - target) < 0.02:
+                self._bar_alpha = target
+            need_update = True
+
         if need_update:
             self.update()
 
@@ -173,15 +208,27 @@ class WhalePet(QWidget):
         draw_shadow(painter, PET_SIZE)
 
         image, render_size = self._current_image()
+        now = time.monotonic()
         bob = 0.0
         if IDLE_BOB and not self._dragging:
             phase = self._clock.elapsed() / 1000.0
             bob = math.sin(phase * math.tau / 4.6) * 1.7
+        nod = self._effects.nod_offset(now)
+        y_shift = bob + nod
 
-        target = QRectF(0.0, bob, float(PET_SIZE), float(PET_SIZE))
+        target = QRectF(0.0, y_shift, float(PET_SIZE), float(PET_SIZE))
         painter.drawImage(target, image)
 
+        anchors = face_anchors(
+            PET_SIZE,
+            self._yaw,
+            self._pitch,
+            self._zoom,
+        )
+        self._effects.draw(painter, anchors, y_shift, now)
+
         self._draw_hint(painter)
+        self._draw_action_bar(painter)
         painter.end()
 
     def _draw_hint(self, painter: QPainter) -> None:
@@ -193,7 +240,7 @@ class WhalePet(QWidget):
         alpha = min(1.0, remaining / 0.8)
         alpha = max(0.0, alpha)
 
-        text = "左键拖动旋转 · 右键拖动移动 · 滚轮缩放"
+        text = "左键旋转 · 右键移动 · 悬停出现互动按钮"
         font = QFont("Microsoft YaHei UI", 8)
         font.setStyleStrategy(QFont.PreferAntialias)
         metrics = QFontMetrics(font)
@@ -230,6 +277,79 @@ class WhalePet(QWidget):
         painter.restore()
 
     # ------------------------------------------------------------------
+    # 悬停操作条
+    # ------------------------------------------------------------------
+    def _action_layout(self):
+        total = (
+            ACTION_BAR_CHIP_WIDTH * len(ACTION_LABELS)
+            + ACTION_BAR_GAP * (len(ACTION_LABELS) - 1)
+        )
+        x = (PET_SIZE - total) / 2.0
+        result = []
+        for name, label in ACTION_LABELS:
+            rect = QRectF(
+                x,
+                ACTION_BAR_TOP,
+                ACTION_BAR_CHIP_WIDTH,
+                ACTION_BAR_HEIGHT,
+            )
+            result.append((name, label, rect))
+            x += ACTION_BAR_CHIP_WIDTH + ACTION_BAR_GAP
+        return result
+
+    def _action_at(self, pos) -> str:
+        if self._effects.active or self._bar_alpha < 0.35:
+            return None
+        point = QPointF(pos)
+        for name, _label, rect in self._action_layout():
+            if rect.contains(point):
+                return name
+        return None
+
+    def _draw_action_bar(self, painter: QPainter) -> None:
+        if self._bar_alpha <= 0.01 or self._effects.active:
+            return
+
+        alpha = max(0.0, min(1.0, self._bar_alpha))
+        font = QFont("Microsoft YaHei UI", 9)
+        font.setStyleStrategy(QFont.PreferAntialias)
+        painter.save()
+        painter.setOpacity(alpha)
+        painter.setFont(font)
+        for name, label, rect in self._action_layout():
+            hovered = name == self._hover_action
+            fill = QColor(238, 241, 255, 244) if hovered else QColor(255, 255, 255, 232)
+            border = QColor(89, 255, 255, 225)
+            pen = QPen(border, 1.2)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(rect, rect.height() / 2.0, rect.height() / 2.0)
+            painter.setPen(QColor(59, 70, 104, 245))
+            painter.drawText(rect, Qt.AlignCenter, label)
+        painter.restore()
+
+    # ------------------------------------------------------------------
+    # 互动
+    # ------------------------------------------------------------------
+    def _trigger_effect(self, name: str) -> None:
+        if self._effects.trigger(name):
+            self._hide_hint()
+            self._button_pressed = False
+            self._hover_action = None
+            self.update()
+
+    def _update_hover_action(self, pos) -> None:
+        action = self._action_at(pos)
+        if action != self._hover_action:
+            self._hover_action = action
+            self.update()
+        if action:
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.setCursor(Qt.OpenHandCursor)
+
+    # ------------------------------------------------------------------
     # 鼠标操作
     # ------------------------------------------------------------------
     def mousePressEvent(self, event) -> None:
@@ -237,8 +357,15 @@ class WhalePet(QWidget):
         self._press_global = event.globalPos()
         self._last_global = event.globalPos()
         self._right_moved = False
+        self._button_pressed = False
 
         if event.button() == Qt.LeftButton:
+            action = self._action_at(event.pos())
+            if action:
+                self._button_pressed = True
+                self._trigger_effect(action)
+                event.accept()
+                return
             if event.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier):
                 self._start_move(event.globalPos())
             else:
@@ -265,6 +392,7 @@ class WhalePet(QWidget):
 
     def mouseMoveEvent(self, event) -> None:
         if not self._dragging:
+            self._update_hover_action(event.pos())
             super().mouseMoveEvent(event)
             return
 
@@ -292,6 +420,14 @@ class WhalePet(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._button_pressed:
+            self._button_pressed = False
+            self._mode = None
+            self._dragging = False
+            self._update_hover_action(event.pos())
+            event.accept()
+            return
+
         if event.button() == Qt.LeftButton and self._mode == "rotate":
             self._mode = None
             self._dragging = False
@@ -343,6 +479,20 @@ class WhalePet(QWidget):
             self.update()
         event.accept()
 
+    def enterEvent(self, event) -> None:
+        self._hover_inside = True
+        self._hide_hint()
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover_inside = False
+        self._hover_action = None
+        if not self._dragging:
+            self.setCursor(Qt.OpenHandCursor)
+        self.update()
+        super().leaveEvent(event)
+
     def _hide_hint(self) -> None:
         self._hint_until = 0.0
 
@@ -384,6 +534,12 @@ class WhalePet(QWidget):
             """
         )
 
+        effect_actions = {
+            menu.addAction("拍拍"): "pat",
+            menu.addAction("喂鱼"): "feed",
+            menu.addAction("喷水"): "spray",
+        }
+        menu.addSeparator()
         spin_action = menu.addAction("自动旋转展示")
         spin_action.setCheckable(True)
         spin_action.setChecked(self._auto_spin)
@@ -394,7 +550,9 @@ class WhalePet(QWidget):
         quit_action = menu.addAction("退出小鲸鱼")
 
         chosen = menu.exec_(global_pos)
-        if chosen == spin_action:
+        if chosen in effect_actions:
+            self._trigger_effect(effect_actions[chosen])
+        elif chosen == spin_action:
             self._auto_spin = not self._auto_spin
             self._hide_hint()
             self.update()

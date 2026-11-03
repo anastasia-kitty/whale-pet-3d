@@ -1153,6 +1153,73 @@ def draw_shadow(painter: QPainter, size: int) -> None:
     painter.restore()
 
 
+def _project_model_point(
+    point: Vec3,
+    size: int,
+    yaw_deg: float,
+    pitch_deg: float,
+    zoom: float,
+) -> Vec2:
+    """把模型空间点投影到窗口逻辑坐标，供 2D 互动特效定位。"""
+    yaw = math.radians(yaw_deg)
+    pitch = math.radians(pitch_deg)
+    p = rot_x(rot_z(point, yaw), pitch)
+    rel = v_sub(p, _CAM_EYE)
+    depth = v_dot(rel, _CAM_FWD)
+    if depth <= 0.12:
+        return (size * 0.5, size * 0.5)
+    focal = size * 1.92 * zoom
+    cx = size * 0.5
+    cy = size * 0.485
+    sx = cx + focal * v_dot(rel, _CAM_RIGHT) / depth
+    sy = cy - focal * v_dot(rel, _CAM_UP) / depth
+    return (sx, sy)
+
+
+def face_anchors(
+    size: int,
+    yaw_deg: float,
+    pitch_deg: float,
+    zoom: float,
+) -> Dict[str, Tuple[float, float]]:
+    """
+    返回互动特效需要用到的屏幕锚点：
+    左右眼睛、眼睛半径、头顶喷水口、嘴巴中心。
+    """
+    def surface_point(x: float, z: float, offset: float = 0.025) -> Vec3:
+        q, theta = _front_surface_point(x, z)
+        return body_point(q, theta, offset)
+
+    eye_r = surface_point(PUPIL_CENTER_X, PUPIL_CENTER_Z)
+    eye_l = surface_point(-PUPIL_CENTER_X, PUPIL_CENTER_Z)
+    eye_r_edge = surface_point(
+        PUPIL_CENTER_X + PUPIL_RADIUS,
+        PUPIL_CENTER_Z,
+    )
+    eye_r_screen = _project_model_point(eye_r, size, yaw_deg, pitch_deg, zoom)
+    eye_r_edge_screen = _project_model_point(
+        eye_r_edge,
+        size,
+        yaw_deg,
+        pitch_deg,
+        zoom,
+    )
+
+    blowhole = body_point(0.22, math.pi / 2.0, 0.030)
+    mouth = surface_point(0.0, MOUTH_CENTER_Z, 0.035)
+    head_top = body_point(0.18, math.pi / 2.0, 0.030)
+
+    radius = max(3.0, abs(eye_r_edge_screen[0] - eye_r_screen[0]))
+    return {
+        "eye_left": _project_model_point(eye_l, size, yaw_deg, pitch_deg, zoom),
+        "eye_right": eye_r_screen,
+        "eye_radius": (radius, radius),
+        "blowhole": _project_model_point(blowhole, size, yaw_deg, pitch_deg, zoom),
+        "mouth": _project_model_point(mouth, size, yaw_deg, pitch_deg, zoom),
+        "head_top": _project_model_point(head_top, size, yaw_deg, pitch_deg, zoom),
+    }
+
+
 # 单例渲染器，窗口和预览脚本共用
 _default_renderer: Optional[WhaleRenderer] = None
 
