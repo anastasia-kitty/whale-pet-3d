@@ -74,6 +74,7 @@ ACTION_BAR_TOP = 5.0
 ACTION_BAR_HEIGHT = 28.0
 ACTION_BAR_CHIP_WIDTH = 64.0
 ACTION_BAR_GAP = 8.0
+ACTION_HIDE_DELAY = 1.0        # 鼠标移开后，操作条再停留 1 秒
 
 
 class WhalePet(QWidget):
@@ -101,6 +102,7 @@ class WhalePet(QWidget):
         self._hover_inside = False
         self._hover_action = None
         self._bar_alpha = 0.0
+        self._actions_grace_until = 0.0
         self._button_pressed = False
 
         self._yaw = INITIAL_YAW
@@ -174,12 +176,15 @@ class WhalePet(QWidget):
         elif was_active:
             need_update = True
 
-        target = 1.0 if (self._hover_inside and not self._effects.active) else 0.0
+        bar_allowed = self._hover_inside or now < self._actions_grace_until
+        target = 1.0 if (bar_allowed and not self._effects.active) else 0.0
         if abs(self._bar_alpha - target) > 0.01:
             self._bar_alpha += (target - self._bar_alpha) * 0.28
             if abs(self._bar_alpha - target) < 0.02:
                 self._bar_alpha = target
             need_update = True
+        if not bar_allowed and self._bar_alpha <= 0.01:
+            self._actions_grace_until = 0.0
 
         if need_update:
             self.update()
@@ -481,6 +486,7 @@ class WhalePet(QWidget):
 
     def enterEvent(self, event) -> None:
         self._hover_inside = True
+        self._actions_grace_until = 0.0
         self._hide_hint()
         self.update()
         super().enterEvent(event)
@@ -488,6 +494,7 @@ class WhalePet(QWidget):
     def leaveEvent(self, event) -> None:
         self._hover_inside = False
         self._hover_action = None
+        self._actions_grace_until = time.monotonic() + ACTION_HIDE_DELAY
         if not self._dragging:
             self.setCursor(Qt.OpenHandCursor)
         self.update()
