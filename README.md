@@ -8,7 +8,7 @@
 >
 > 小鲸鱼形象来源于深度求索（DeepSeek），相关权利归深度求索所有。本项目是粉丝为爱发电制作的非官方桌宠，与深度求索公司没有隶属、合作或授权关系。
 >
-> 请勿将小鲸鱼形象用于售卖或其他商业用途。除小鲸鱼形象外，本项目的代码可自由参考、修改和使用，建议保留项目出处。
+> 请勿将小鲸鱼形象用于售卖或其他商业用途。代码与文档的使用范围、版权归属和免责声明，详见 [NOTICE.md](NOTICE.md)。
 
 ![桌面效果](preview_3d.png)
 
@@ -182,6 +182,7 @@ whale_pet/
 ├─ whale_3d_transparent.png # 透明背景大图
 ├─ reference.jpg            # 原始设定图
 ├─ reference_face.jpg       # 面部细节参考图
+├─ NOTICE.md                # 版权与使用说明
 ├─ requirements.txt         # PyQt5
 ├─ .vscode/
 │  ├─ launch.json           # 3D / 2D / tkinter 三个启动配置
