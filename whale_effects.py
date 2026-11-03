@@ -308,20 +308,22 @@ class WhaleEffects:
             return
 
         cx = anchors["head_top"][0]
-        cy = anchors["head_top"][1] + 68.0 + y_shift
-        for i in range(8):
-            angle = i * math.tau / 8.0 + p * math.tau * 1.15
-            radius = 66.0 + 16.0 * math.sin(p * math.pi * 2.0 + i * 1.7)
-            x = cx + math.cos(angle) * radius
-            y = cy + math.sin(angle) * radius * 0.52
-            size = 4.0 + 2.8 * (0.5 + 0.5 * math.sin(p * 9.0 + i))
+        cy = 200.0 + y_shift
+        # 环绕整只小鲸鱼的椭圆星光环，而不是脸前的小圈
+        for i in range(12):
+            angle = i * math.tau / 12.0 + p * math.tau * 1.05
+            rx = 152.0 + 9.0 * math.sin(p * math.pi * 2.0 + i * 1.7)
+            ry = 124.0 + 7.0 * math.cos(p * math.pi * 2.0 + i * 1.3)
+            x = cx + math.cos(angle) * rx
+            y = cy + math.sin(angle) * ry
+            size = 4.4 + 3.2 * (0.5 + 0.5 * math.sin(p * 9.0 + i))
             color = (255, 209, 92) if i % 2 == 0 else WATER
             self._draw_sparkle(
                 painter,
                 x,
                 y,
                 size,
-                QColor(color[0], color[1], color[2], int(230 * alpha)),
+                QColor(color[0], color[1], color[2], int(240 * alpha)),
             )
 
     def _draw_sparkle(self, painter, x, y, size, color) -> None:
