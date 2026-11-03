@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import sys
 import time
+from pathlib import Path
 
 from PyQt5.QtCore import (
     QEasingCurve,
@@ -108,6 +109,11 @@ class WhalePet(QWidget):
         self._spin_frames = []
         self._spin_key = None
         self._spin_duration = 1.35
+        self._spin_sheet = QImage()
+        self._spin_sheet_cell = 400
+        self._spin_sheet_cols = 6
+        self._spin_sheet_rows = 6
+        self._spin_start_index = 0
 
         self._yaw = INITIAL_YAW
         self._pitch = INITIAL_PITCH
@@ -226,13 +232,9 @@ class WhalePet(QWidget):
         nod = self._effects.nod_offset(now)
         y_shift = bob + nod
 
-        if self._effects.name == "spin" and self._spin_frames:
+        if self._effects.name == "spin":
             progress = (now - self._effects.start) / self._spin_duration
             progress = max(0.0, min(1.0, progress))
-            index = min(
-                len(self._spin_frames) - 1,
-                int(progress * len(self._spin_frames)),
-            )
             hop = -8.0 * math.sin(math.pi * progress)
             target = QRectF(
                 0.0,
@@ -240,7 +242,30 @@ class WhalePet(QWidget):
                 float(PET_SIZE),
                 float(PET_SIZE),
             )
-            painter.drawImage(target, self._spin_frames[index])
+            if not self._spin_sheet.isNull():
+                count = self._spin_sheet_cols * self._spin_sheet_rows
+                eased = progress * progress * (3.0 - 2.0 * progress)
+                index = (
+                    self._spin_start_index + int(eased * count)
+                ) % count
+                col = index % self._spin_sheet_cols
+                row = index // self._spin_sheet_cols
+                cell = float(self._spin_sheet_cell)
+                source = QRectF(
+                    col * cell,
+                    row * cell,
+                    cell,
+                    cell,
+                )
+                painter.drawImage(target, self._spin_sheet, source)
+            elif self._spin_frames:
+                index = min(
+                    len(self._spin_frames) - 1,
+                    int(progress * len(self._spin_frames)),
+                )
+                painter.drawImage(target, self._spin_frames[index])
+            else:
+                painter.drawImage(target, image)
         else:
             target = QRectF(0.0, y_shift, float(PET_SIZE), float(PET_SIZE))
             painter.drawImage(target, image)
@@ -358,8 +383,29 @@ class WhalePet(QWidget):
     # ------------------------------------------------------------------
     # 互动
     # ------------------------------------------------------------------
+    def _load_spin_sheet(self) -> bool:
+        """加载预渲染的 3D 水平转台动画（6×6，共 36 帧）。"""
+        if not self._spin_sheet.isNull():
+            return True
+        path = Path(__file__).resolve().parent / "spin_sheet.png"
+        image = QImage(str(path))
+        if image.isNull():
+            return False
+        cols = 6
+        rows = 6
+        if image.width() % cols or image.height() % rows:
+            return False
+        cell = image.width() // cols
+        if cell <= 0 or image.height() // rows != cell:
+            return False
+        self._spin_sheet = image
+        self._spin_sheet_cell = cell
+        self._spin_sheet_cols = cols
+        self._spin_sheet_rows = rows
+        return True
+
     def _build_spin_frames(self) -> None:
-        """把当前视角的缓存图预渲染成 36 帧转圈动画。"""
+        """素材缺失时的后备方案：把当前缓存图做成 2D 转圈动画。"""
         image, _render_size = self._current_image()
         dpr = max(1.0, float(image.devicePixelRatio()))
         key = (
@@ -410,9 +456,16 @@ class WhalePet(QWidget):
         if name == "spin":
             if self._effects.active:
                 return
-            self._build_spin_frames()
+            has_sheet = self._load_spin_sheet()
+            if not has_sheet:
+                self._build_spin_frames()
             if not self._effects.trigger("spin"):
                 return
+            if has_sheet:
+                count = self._spin_sheet_cols * self._spin_sheet_rows
+                self._spin_start_index = int(
+                    round((self._yaw % 360.0) / 10.0)
+                ) % count
         else:
             if not self._effects.trigger(name):
                 return
