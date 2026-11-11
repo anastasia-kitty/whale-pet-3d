@@ -9,15 +9,16 @@ DeepSeek 小鲸鱼桌宠 · 3D 版
     · 真正的 3D 网格（不是贴图 / 序列帧），可以旋转查看各个角度
     · 纯 PyQt5 + QPainter 软件渲染，不需要 OpenGL、numpy 或模型文件
     · 透明背景、右下角启动、始终置顶、无任务栏图标
+    · 支持和小鲸鱼聊天：流式回答、思考过程、历史对话、深度思考
     · 支持拍拍、喂鱼、喷水、转圈四种互动
 
 操作：
-    · 鼠标移入：显示拍拍 / 喂鱼 / 喷水 / 转圈操作条
+    · 鼠标移入：显示聊天 / 拍拍 / 喂鱼 / 喷水 / 转圈操作条
     · 左键拖动：旋转小鲸鱼
     · 右键拖动 / Shift+左键拖动：移动桌宠
     · 滚轮：缩放
     · 双击：回到初始视角
-    · 右键单击：菜单（互动 / 自动旋转 / 复位 / 回右下角 / 退出）
+    · 右键单击：菜单（聊天 / 聊天设置 / 互动 / 自动旋转 / 复位 / 回右下角 / 退出）
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from PyQt5.QtCore import (
     QPoint,
     QPointF,
     QPropertyAnimation,
+    QRect,
     QRectF,
     Qt,
     QTimer,
@@ -67,6 +69,7 @@ DRAG_RENDER_SCALE = 0.84
 
 # 悬停操作条
 ACTION_LABELS = (
+    ("chat", "聊天"),
     ("pat", "拍拍"),
     ("feed", "喂鱼"),
     ("spray", "喷水"),
@@ -77,6 +80,7 @@ ACTION_BAR_HEIGHT = 28.0
 ACTION_BAR_CHIP_WIDTH = 64.0
 ACTION_BAR_GAP = 8.0
 ACTION_HIDE_DELAY = 1.0        # 鼠标移开后，操作条再停留 1 秒
+SPEECH_SECONDS = 3.4           # 回答后气泡停留时间
 
 
 class WhalePet(QWidget):
@@ -132,6 +136,15 @@ class WhalePet(QWidget):
             self._hint_started + HINT_SECONDS if SHOW_HINT else 0.0
         )
 
+        # 聊天联动：气泡 + 思考状态
+        self._chat = None
+        self._speech_text = ""
+        self._speech_until = 0.0
+        self._speech_start = 0.0
+        self._speech_duration = SPEECH_SECONDS
+        self._thinking = False
+        self._thinking_since = 0.0
+
         self._timer = QTimer(self)
         self._timer.setInterval(33)       # 约 30 FPS；待机时只重绘缓存，很轻
         self._timer.timeout.connect(self._tick)
@@ -181,13 +194,25 @@ class WhalePet(QWidget):
         if now < self._hint_until:
             need_update = True
 
+        if self._thinking:
+            need_update = True
+        elif self._speech_text:
+            if now < self._speech_until:
+                need_update = True
+            else:
+                self._speech_text = ""
+                need_update = True
+
         was_active = self._effects.active
         if self._effects.tick(now):
             need_update = True
         elif was_active:
             need_update = True
 
-        bar_allowed = self._hover_inside or now < self._actions_grace_until
+        speech_on = self._speech_active(now)
+        bar_allowed = (
+            self._hover_inside or now < self._actions_grace_until
+        ) and not speech_on
         target = 1.0 if (bar_allowed and not self._effects.active) else 0.0
         if abs(self._bar_alpha - target) > 0.01:
             self._bar_alpha += (target - self._bar_alpha) * 0.28
@@ -199,6 +224,11 @@ class WhalePet(QWidget):
 
         if need_update:
             self.update()
+
+    def _speech_active(self, now: float) -> bool:
+        if self._thinking:
+            return True
+        return bool(self._speech_text) and now < self._speech_until
 
     def _render_size(self) -> int:
         if self._dragging and self._mode == "rotate":
@@ -277,10 +307,86 @@ class WhalePet(QWidget):
             self._zoom,
         )
         self._effects.draw(painter, anchors, y_shift, now)
+        self._draw_speech(painter, anchors, y_shift, now)
 
-        self._draw_hint(painter)
+        if not self._speech_active(now):
+            self._draw_hint(painter)
         self._draw_action_bar(painter)
         painter.end()
+
+    def _draw_speech(
+        self,
+        painter: QPainter,
+        anchors,
+        y_shift: float,
+        now: float,
+    ) -> None:
+        """头顶的小对话气泡：思考中 / 刚说完的一句话。"""
+        if not self._speech_active(now):
+            return
+
+        if self._thinking:
+            dots = "." * (int((now - self._thinking_since) * 3.0) % 4)
+            text = "让我想想" + dots
+            alpha = 1.0
+        else:
+            text = self._speech_text
+            remaining = self._speech_until - now
+            elapsed = now - self._speech_start
+            fade_in = min(1.0, max(0.0, elapsed / 0.14))
+            fade_out = min(1.0, max(0.0, remaining / 0.32))
+            alpha = min(fade_in, fade_out)
+        if alpha <= 0.01:
+            return
+
+        font = QFont("Microsoft YaHei UI", 9)
+        font.setStyleStrategy(QFont.PreferAntialias)
+        metrics = QFontMetrics(font)
+        max_text_w = 268.0
+        pad_x = 14.0
+        pad_y = 8.0
+        bounds = metrics.boundingRect(
+            QRect(0, 0, int(max_text_w), 600),
+            int(Qt.TextWordWrap),
+            text,
+        )
+        text_w = min(max_text_w, max(40, bounds.width()))
+        text_h = max(16, bounds.height())
+        box_w = text_w + pad_x * 2.0
+        box_h = text_h + pad_y * 2.0
+
+        anchor_x, anchor_y = anchors["head_top"]
+        anchor_y += y_shift
+        bottom = anchor_y - 8.0
+        top = bottom - box_h
+        if top < 40.0:
+            top = 40.0
+            bottom = top + box_h
+        left = anchor_x - box_w / 2.0
+        left = max(8.0, min(left, PET_SIZE - box_w - 8.0))
+        box = QRectF(left, top, box_w, box_h)
+
+        painter.save()
+        painter.setOpacity(alpha)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        tail_tip = min(bottom + 11.0, anchor_y - 2.0)
+        tail = QPolygonF(
+            [
+                QPointF(anchor_x - 6.0, bottom - 0.5),
+                QPointF(anchor_x + 6.0, bottom - 0.5),
+                QPointF(anchor_x, max(tail_tip, bottom + 4.0)),
+            ]
+        )
+        painter.setPen(QPen(QColor(89, 255, 255, 225), 1.3))
+        painter.setBrush(QColor(255, 255, 255, 243))
+        painter.drawRoundedRect(box, 14.0, 14.0)
+        painter.drawPolygon(tail)
+
+        painter.setFont(font)
+        painter.setPen(QColor(61, 72, 112, 248))
+        painter.drawText(box, Qt.AlignCenter | int(Qt.TextWordWrap), text)
+        painter.restore()
 
     def _draw_hint(self, painter: QPainter) -> None:
         now = time.monotonic()
@@ -349,7 +455,10 @@ class WhalePet(QWidget):
         return result
 
     def _action_at(self, pos) -> str:
-        if self._effects.active or self._bar_alpha < 0.35:
+        now = time.monotonic()
+        if self._effects.active or self._speech_active(now):
+            return None
+        if self._bar_alpha < 0.35:
             return None
         point = QPointF(pos)
         for name, _label, rect in self._action_layout():
@@ -359,6 +468,8 @@ class WhalePet(QWidget):
 
     def _draw_action_bar(self, painter: QPainter) -> None:
         if self._bar_alpha <= 0.01 or self._effects.active:
+            return
+        if self._speech_active(time.monotonic()):
             return
 
         alpha = max(0.0, min(1.0, self._bar_alpha))
@@ -474,6 +585,56 @@ class WhalePet(QWidget):
         self._hover_action = None
         self.update()
 
+    def _perform_action(self, name: str) -> None:
+        if name == "chat":
+            self._button_pressed = False
+            self._hover_action = None
+            self.update()
+            self._open_chat()
+            return
+        self._trigger_effect(name)
+
+    def _open_chat(self, show_settings: bool = False) -> None:
+        if self._chat is None:
+            from whale_chat import ChatWindow
+
+            self._chat = ChatWindow(pet=self)
+        self._chat.open_window(show_settings=show_settings)
+        self._hide_hint()
+
+    def _shutdown_chat(self) -> None:
+        chat = self._chat
+        self._chat = None
+        if chat is not None:
+            try:
+                chat.shutdown()
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # 聊天联动
+    # ------------------------------------------------------------------
+    def say(self, text: str, seconds: float = SPEECH_SECONDS) -> None:
+        self._thinking = False
+        self._speech_text = (text or "").strip()
+        self._speech_duration = max(0.8, seconds)
+        self._speech_start = time.monotonic()
+        self._speech_until = self._speech_start + self._speech_duration
+        self._hide_hint()
+        self.update()
+
+    def set_thinking(self, on: bool) -> None:
+        self._thinking = bool(on)
+        self._thinking_since = time.monotonic()
+        if on:
+            self._speech_text = ""
+            self._speech_until = 0.0
+        self.update()
+
+    def celebrate(self) -> None:
+        if not self._effects.active:
+            self._trigger_effect("pat")
+
     def _update_hover_action(self, pos) -> None:
         action = self._action_at(pos)
         if action != self._hover_action:
@@ -501,7 +662,7 @@ class WhalePet(QWidget):
             action = self._action_at(event.pos())
             if action:
                 self._button_pressed = True
-                self._trigger_effect(action)
+                self._perform_action(action)
                 event.accept()
                 return
             if event.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier):
@@ -678,6 +839,10 @@ class WhalePet(QWidget):
             """
         )
 
+        chat_action = menu.addAction("和小鲸鱼聊天…")
+        settings_action = menu.addAction("聊天设置…")
+        reset_chat_action = menu.addAction("聊天窗回到鲸鱼旁边")
+        menu.addSeparator()
         effect_actions = {
             menu.addAction("拍拍"): "pat",
             menu.addAction("喂鱼"): "feed",
@@ -695,7 +860,15 @@ class WhalePet(QWidget):
         quit_action = menu.addAction("退出小鲸鱼")
 
         chosen = menu.exec_(global_pos)
-        if chosen in effect_actions:
+        if chosen == chat_action:
+            self._open_chat()
+        elif chosen == settings_action:
+            self._open_chat(show_settings=True)
+        elif chosen == reset_chat_action:
+            self._open_chat()
+            if self._chat is not None:
+                self._chat.reset_position()
+        elif chosen in effect_actions:
             self._trigger_effect(effect_actions[chosen])
         elif chosen == spin_action:
             self._auto_spin = not self._auto_spin
@@ -706,6 +879,7 @@ class WhalePet(QWidget):
         elif chosen == back_action:
             self._place_bottom_right()
         elif chosen == quit_action:
+            self._shutdown_chat()
             QApplication.quit()
 
     # ------------------------------------------------------------------
@@ -733,6 +907,7 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(True)
 
     pet = WhalePet()
+    app.aboutToQuit.connect(pet._shutdown_chat)
     pet.show()
     sys.exit(app.exec_())
 

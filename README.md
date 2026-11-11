@@ -2,6 +2,8 @@
 
 用 **Python + PyQt5** 写的一只小鲸鱼桌宠。它是真正的 **3D 网格**，不是平面贴图，也不是预渲染的序列帧：启动后可以用鼠标拖动，从正面、侧面、背面、上方观察它。
 
+现在还可以点它头顶的「聊天」，和小鲸鱼聊聊天、看思考过程、翻以前的对话。
+
 只依赖 PyQt5，**不需要 OpenGL、numpy、Blender 或任何模型文件**，在 VSCode 里直接运行即可。
 
 > **非官方粉丝项目声明**
@@ -26,11 +28,11 @@
 
 ![互动效果预览](interaction_preview.png)
 
-鼠标移入小鲸鱼窗口时，头顶上方会淡入四个小按钮：
+鼠标移入小鲸鱼窗口时，头顶上方会淡入五个小按钮：
 
 ```text
-[ 拍拍 ]  [ 喂鱼 ]  [ 喷水 ]  [ 转圈 ]
-                  🐳
+[ 聊天 ]  [ 拍拍 ]  [ 喂鱼 ]  [ 喷水 ]  [ 转圈 ]
+                     🐳
 ```
 
 | 互动 | 效果 |
@@ -100,6 +102,57 @@ z = center_z + lift * u²
 - **吻部填蓝**：在吻部弧线和微笑线之间加一块贴合面部的蓝色贴片，把原本露出来的白色肚皮盖住。贴片下边缘沿着微笑线，嘴巴两端又加了圆角端帽，所以现在白色只从微笑线下方开始；
 - 黑色眼睛、白色眼斑和吻部弧线的位置都由 `PUPIL_CENTER_X`、`PUPIL_CENTER_Z`、`SNOUT_WIDTH`、`SNOUT_CENTER_Z` 等参数控制；蓝色吻部贴片由 `MUZZLE_WIDTH`、`MUZZLE_TOP_Z` 控制。
 
+## 和小鲸鱼聊天
+
+![聊天界面](preview_chat.png)
+
+点小鲸鱼头顶的「聊天」，或者右键菜单里的「和小鲸鱼聊天…」，就会在它旁边打开一个聊天小窗。第一次使用先点右上角 ⚙ 填一个 [DeepSeek API Key](https://platform.deepseek.com/api_keys)。
+
+| 功能 | 说明 |
+| --- | --- |
+| **流式回答** | 小鲸鱼会一边想一边把答案写出来，不用等整段生成完 |
+| **深度思考** | 默认开启，回答前先输出「思考过程」；点思考条可以展开 / 收起，也可以一键切成普通对话 |
+| **历史目录** | 点左上角 ☰ 滑出目录，按「今天 / 昨天 / 本周 / 更早」分组，支持搜索、重命名、删除 |
+| **多轮上下文** | 自动带上当前对话最近的内容，超出预算时从最早的开始丢，不会把整段历史一股脑发出去 |
+| **停止生成** | 回答到一半可以点右下角红色按钮停下，已经说出来的部分会保留 |
+| **桌宠联动** | 思考时小鲸鱼冒「让我想想…」气泡，回答完会眯眼冒爱心；聊天窗关掉也不会打断它 |
+| **本地保存** | 对话和设置只存在本机，关掉程序也不会丢 |
+
+快捷键：`Enter` 发送，`Shift + Enter` 换行，`Esc` 收起聊天窗，`Ctrl + N` 新对话，`Ctrl + ,` 打开设置。
+
+### 历史目录
+
+![历史目录](preview_chat_history.png)
+
+每段对话会自动用第一句话当标题。点 ☰ 打开目录后可以搜索标题；右键某一项可以重命名或删除。当前正在聊的那段会高亮。
+
+### 设置里有什么
+
+![聊天设置](preview_chat_settings.png)
+
+- **API Key**：只保存在本机的 `settings.json` 里，不会上传到除你填写的 API 地址以外的任何地方；
+- **模型**：`deepseek-flash`（默认，快而省）和 `deepseek-v4-pro`（更强推理）；
+- **深度思考**：开关 + 思考强度（低 / 高 / 最高），关掉后会切换成普通对话；
+- **API 地址**：默认 `https://api.deepseek.com`，用代理或兼容网关时可以改；
+- **小鲸鱼的人设**：系统提示词，可以按自己的喜好改；
+- **测试连接**：保存前可以先验证 Key、模型和地址是否可用。
+
+> 深度思考通过请求里的 `{"thinking": {"type": "enabled/disabled"}}` 控制，思考内容会以灰色「思考过程」显示，不会混进正式回答里；具体参数以 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode) 为准。
+
+### 对话存在哪
+
+```text
+%APPDATA%\DeepSeekWhalePet\
+├─ settings.json          # API Key、模型、人设、聊天窗位置
+└─ conversations\
+   ├─ 20261109-132401-ab12cd.json
+   └─ ...
+```
+
+- 每段对话一个 JSON 文件，方便单独备份；删掉 `conversations` 里的文件就等于删除对话。
+- API Key 以明文保存在本机设置文件里（和大多数桌面客户端一样），不会写进项目仓库；如果介意，可以只在需要时填写，或用完清空。
+- 想彻底重置：退出小鲸鱼后删掉整个 `DeepSeekWhalePet` 文件夹。
+
 ## 直接运行（VSCode）
 
 项目里已经准备好 `.venv`（Python 3.7 + PyQt5 5.15.4），按下面步骤即可：
@@ -127,13 +180,13 @@ python -m venv .venv
 
 | 操作 | 效果 |
 | --- | --- |
-| **鼠标移入小鲸鱼** | 打开头顶的「拍拍 / 喂鱼 / 喷水 / 转圈」互动条 |
+| **鼠标移入小鲸鱼** | 打开头顶的「聊天 / 拍拍 / 喂鱼 / 喷水 / 转圈」操作条 |
 | **左键拖动** | 旋转小鲸鱼，水平 360°，上下可看到背部和肚皮 |
 | **右键拖动** | 移动桌宠到屏幕任意位置 |
 | **Shift + 左键拖动** | 也是移动桌宠（不想用右键时） |
 | **滚轮** | 放大 / 缩小 |
 | **左键双击** | 回到初始视角 |
-| **右键单击** | 打开菜单：拍拍 / 喂鱼 / 喷水 / 转圈 / 自动旋转展示 / 重置视角 / 回到右下角 / 退出 |
+| **右键单击** | 打开菜单：和小鲸鱼聊天 / 聊天设置 / 拍拍 / 喂鱼 / 喷水 / 转圈 / 自动旋转展示 / 重置视角 / 回到右下角 / 退出 |
 
 > 右键“拖动”和右键“单击”是区分开的：按住右键移动超过 3 像素就是移动桌宠，基本不动才会弹出菜单。
 >
@@ -203,8 +256,21 @@ whale_pet/
 ├─ whale_pet_3d.py          # 3D 桌宠主程序（推荐运行）
 ├─ whale3d.py               # 3D 小鲸鱼模型 + 软件渲染器
 ├─ whale_effects.py         # 拍拍 / 喂鱼 / 喷水 / 转圈特效
+├─ whale_chat.py            # 聊天窗、消息气泡、历史抽屉、设置弹窗
+├─ whale_api.py             # DeepSeek 流式接口（标准库 urllib + QThread）
+├─ whale_store.py           # 对话框 / 历史记录存储
+├─ whale_config.py          # 设置项与数据目录
+├─ whale_markdown.py        # 轻量 Markdown → Qt 富文本
+├─ tests/
+│  ├─ test_chat_core.py     # 设置、存储、Markdown、SSE 解析测试
+│  └─ test_chat_stream.py   # 本地假服务端：流式 / 停止 / 窗口发送链路
+├─ render_chat_preview.py   # 生成聊天界面预览图（开发用）
+├─ preview_chat.png         # 聊天界面预览
+├─ preview_chat_history.png # 历史目录预览
+├─ preview_chat_settings.png # 设置弹窗预览
 ├─ spin_sheet.png           # 预渲染的 36 帧 3D 转台动画
 ├─ render_preview_3d.py     # 生成桌面图 / 多角度图（开发用）
+├─ render_interaction_preview.py # 生成互动效果图（开发用）
 ├─ interaction_preview.png  # 互动效果预览
 ├─ preview_3d.png           # 桌面效果预览
 ├─ whale_3d_views.png       # 正面、3/4、侧面、背面
@@ -214,7 +280,7 @@ whale_pet/
 ├─ NOTICE.md                # 版权与使用说明
 ├─ requirements.txt         # PyQt5
 ├─ .vscode/
-│  ├─ launch.json           # 3D / 2D / tkinter 三个启动配置
+│  ├─ launch.json           # 3D / 2D / tkinter / 单独聊天窗调试
 │  └─ settings.json
 ├─ whale_pet.py             # 附带的 2D PyQt5 版
 ├─ whale_pet_tk.py          # 附带的 2D tkinter 版
@@ -254,6 +320,30 @@ whale_pet/
 
 这是正常的：右键按住移动会移动桌宠，只有右键基本不动（移动小于 3 像素）才会弹出菜单。
 
+**聊天时提示「API Key 无效」**
+
+一般是 Key 没填对、复制时多了空格，或者 Key 已被删除。打开「聊天设置…」，点「测试连接」看具体报错，也可以到 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 重新生成一个。注意不要把 Key 发到公开仓库或截图里。
+
+**提示余额不足 / 请求太频繁**
+
+对应 HTTP 402 / 429：前者需要到开放平台充值，后者等一会儿再发，或者把「思考强度」调低一点。
+
+**聊天窗跑到屏幕外了**
+
+右键小鲸鱼 →「聊天窗回到鲸鱼旁边」，聊天窗会重新贴回小鲸鱼左侧（位置也会被重置）。
+
+**想换模型或关掉深度思考**
+
+点聊天窗底部的「深度思考 · 高」可以临时切换；模型、思考强度和 API 地址在 ⚙ 设置里改。
+
+**聊天记录在哪 / 怎么备份**
+
+Windows 下在 `%APPDATA%\DeepSeekWhalePet\conversations\`，每段对话一个 JSON 文件，复制出来就是备份。详细说明见前面的「对话存在哪」。
+
+**代码块里的长行被折行了**
+
+聊天窗只有 420px 宽，超过宽度的代码会自动折行，不影响复制。右键某条回复可以「复制这段回复」；如果经常看长代码，建议把窗口拖到副屏或直接复制出去看。
+
 **旋转时帧率一般**
 
 软件 3D 渲染的预期表现。可以降低 `PET_SIZE` 或 `DRAG_RENDER_SCALE`；待机展示是缓存的，不受影响。
@@ -262,12 +352,31 @@ whale_pet/
 
 `whale3d.py` 里的 `_build_body`、`_build_belly`、`_build_eye_patch`、`_build_pectoral` 都是独立的参数化函数，可以单独改身体轮廓、眼斑大小、鳍的长度和角度。
 
+## 运行测试
+
+不需要真实 API Key：测试会用本地假服务端模拟 DeepSeek 的流式返回。
+
+```powershell
+cd whale_pet
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+- `tests/test_chat_core.py`：设置读写、对话存储、Markdown 渲染、SSE 解析；
+- `tests/test_chat_stream.py`：流式回答、停止生成、聊天窗发送并保存的完整链路。
+
+如果是在没有桌面的环境（CI / 远程终端）里跑，先设置：
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+```
+
 ## 测试环境
 
 - Windows 10/11
 - Python 3.7.3
 - PyQt5 5.15.4
 - 2560×1600 屏幕实测：透明背景、右下角启动、置顶、右键菜单正常
+- 聊天功能在本地假服务端上完成流式、停止、保存、历史切换测试
 
 ## 致谢
 
@@ -277,4 +386,4 @@ whale_pet/
 
 谢谢喜欢这只小鲸鱼，欢迎来仓库看看 🐳
 
-后续如果要加点击反应、拖拽惯性、更多表情或语音气泡，可以继续在这个 3D 形象层和 `whale_effects.py` 上扩展。
+后续如果想继续扩展，可以在 `whale_chat.py` 上加语音朗读、图片理解、跨对话记忆，或者在 `whale_effects.py` 上做更多表情；聊天层的接口和存储都已经分开了，改动不会影响 3D 形象。
