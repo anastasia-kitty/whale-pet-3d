@@ -185,6 +185,9 @@ def main() -> None:
     QTest.qWait(260)
 
     dialog = SettingsDialog(window.settings, window)
+    dialog._data_label.setText(
+        "数据目录：whale_pet\\data（用户目录不可写，已自动切换）"
+    )
     dialog.show()
     QTest.qWait(180)
     settings_image = QImage(600, 760, QImage.Format_ARGB32_Premultiplied)

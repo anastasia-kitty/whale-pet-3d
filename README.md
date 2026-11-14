@@ -153,6 +153,8 @@ z = center_z + lift * u²
 - API Key 以明文保存在本机设置文件里（和大多数桌面客户端一样），不会写进项目仓库；如果介意，可以只在需要时填写，或用完清空。
 - 想彻底重置：退出小鲸鱼后删掉整个 `DeepSeekWhalePet` 文件夹。
 
+> 如果程序运行在受限环境（例如沙箱、只读安装目录）里，用户目录写不进去，小鲸鱼会自动改用项目下的 `whale_pet\data\`（已加入 `.gitignore`，不会被提交），再不行会退到系统临时目录。实际使用的目录会显示在设置弹窗的「数据目录」一行。
+
 ## 直接运行（VSCode）
 
 项目里已经准备好 `.venv`（Python 3.7 + PyQt5 5.15.4），按下面步骤即可：
@@ -338,7 +340,7 @@ whale_pet/
 
 **聊天记录在哪 / 怎么备份**
 
-Windows 下在 `%APPDATA%\DeepSeekWhalePet\conversations\`，每段对话一个 JSON 文件，复制出来就是备份。详细说明见前面的「对话存在哪」。
+Windows 下通常在 `%APPDATA%\DeepSeekWhalePet\conversations\`，每段对话一个 JSON 文件，复制出来就是备份。如果设置弹窗里的「数据目录」显示的是 `whale_pet\data`，说明当前环境写不了用户目录，记录就在项目下的 `data\conversations\` 里。详细说明见前面的「对话存在哪」。
 
 **代码块里的长行被折行了**
 

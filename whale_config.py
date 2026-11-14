@@ -2,11 +2,13 @@
 """
 小鲸鱼的本地设置。
 
-设置保存在用户目录，不写进项目仓库：
+默认保存在用户目录，不写进项目仓库：
     Windows: %APPDATA%\\DeepSeekWhalePet\\settings.json
     macOS:   ~/Library/Application Support/DeepSeekWhalePet/settings.json
     Linux:   ~/.config/DeepSeekWhalePet/settings.json
 
+如果用户目录不可写（例如在受限沙箱里运行，或者程序装在只读目录），
+会自动退到项目里的 data/ 目录，最后退到系统临时目录。
 调试时可以用环境变量 WHALE_PET_DATA_DIR 指定别的目录。
 """
 
@@ -15,8 +17,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 APP_NAME = "DeepSeekWhalePet"
 
@@ -43,12 +46,7 @@ DEFAULT_SYSTEM_PROMPT = """你是「汐汐的小鲸鱼」，一只住在用户�
 请始终用用户使用的语言回答；用户用中文时，用简体中文。"""
 
 
-def data_dir() -> Path:
-    """返回小鲸鱼的本地数据目录（不自动创建）。"""
-    override = os.environ.get("WHALE_PET_DATA_DIR")
-    if override:
-        return Path(override).expanduser()
-
+def _platform_data_dir() -> Path:
     home = Path.home()
     if sys.platform.startswith("win"):
         base = os.environ.get("APPDATA")
@@ -58,6 +56,79 @@ def data_dir() -> Path:
     else:
         root = Path(os.environ.get("XDG_CONFIG_HOME") or (home / ".config"))
     return root / APP_NAME
+
+
+def _project_data_dir() -> Path:
+    return Path(__file__).resolve().parent / "data"
+
+
+def _candidate_dirs() -> List[Path]:
+    override = os.environ.get("WHALE_PET_DATA_DIR")
+    candidates = []  # type: List[Path]
+    if override:
+        candidates.append(Path(override).expanduser())
+    else:
+        candidates.append(_platform_data_dir())
+    candidates.append(_project_data_dir())
+    candidates.append(Path(tempfile.gettempdir()) / APP_NAME)
+    return candidates
+
+
+def _is_writable(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / (".write-test-%d" % os.getpid())
+        with probe.open("a", encoding="utf-8") as stream:
+            stream.write("ok")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+_cached_dir = None  # type: Optional[Path]
+_cached_key = None  # type: Optional[str]
+
+
+def data_dir() -> Path:
+    """
+    返回小鲸鱼的本地数据目录，并确保它可写。
+
+    优先用户目录；不可写时退到项目里的 data/，再不行退到临时目录。
+    结果按 WHALE_PET_DATA_DIR 缓存，避免每次读写都探测一遍。
+    """
+    global _cached_dir, _cached_key
+    key = os.environ.get("WHALE_PET_DATA_DIR") or ""
+    if _cached_dir is not None and _cached_key == key:
+        return _cached_dir
+
+    candidates = _candidate_dirs()
+    chosen = None  # type: Optional[Path]
+    for candidate in candidates:
+        if _is_writable(candidate):
+            chosen = candidate
+            break
+    if chosen is None:
+        chosen = candidates[-1]
+    _cached_dir = chosen
+    _cached_key = key
+    return chosen
+
+
+def data_dir_display() -> str:
+    """设置弹窗里显示用的短路径，避免一长串绝对路径。"""
+    path = data_dir()
+    if path == _project_data_dir():
+        return "whale_pet\\data（用户目录不可写，已自动切换）"
+    if path == _platform_data_dir():
+        if sys.platform.startswith("win"):
+            return "%APPDATA%\\" + APP_NAME
+        if sys.platform == "darwin":
+            return "~/Library/Application Support/" + APP_NAME
+        return "~/.config/" + APP_NAME
+    if path == Path(tempfile.gettempdir()) / APP_NAME:
+        return "%TEMP%\\" + APP_NAME
+    return str(path)
 
 
 def ensure_data_dir() -> Path:

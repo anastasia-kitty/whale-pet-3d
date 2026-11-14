@@ -75,6 +75,8 @@ from whale_config import (
     DEFAULT_SYSTEM_PROMPT,
     MODEL_CHOICES,
     Settings,
+    data_dir,
+    data_dir_display,
 )
 from whale_markdown import plain_excerpt, render_markdown
 from whale_store import Conversation, ConversationStore, group_label
@@ -1287,6 +1289,14 @@ class SettingsDialog(QDialog):
         self._key_hint.setOpenExternalLinks(True)
         self._key_hint.setWordWrap(True)
         layout.addWidget(self._key_hint)
+
+        self._data_label = QLabel("数据目录：" + data_dir_display(), self)
+        self._data_label.setFont(ui_font(8))
+        self._data_label.setStyleSheet("color:%s;" % MUTED)
+        self._data_label.setWordWrap(True)
+        self._data_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._data_label.setToolTip(str(data_dir()))
+        layout.addWidget(self._data_label)
 
         layout.addWidget(self._field_label("模型"))
         self._model_combo = ComboBox(self)
