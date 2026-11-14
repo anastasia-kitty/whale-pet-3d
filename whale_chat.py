@@ -81,6 +81,8 @@ from whale_config import (
 from whale_markdown import plain_excerpt, render_markdown
 from whale_store import Conversation, ConversationStore, group_label
 
+import whale_secret
+
 # ---------------------------------------------------------------------------
 # 配色 / 尺寸
 # ---------------------------------------------------------------------------
@@ -1290,6 +1292,12 @@ class SettingsDialog(QDialog):
         self._key_hint.setWordWrap(True)
         layout.addWidget(self._key_hint)
 
+        self._key_security = QLabel("", self)
+        self._key_security.setFont(ui_font(8))
+        self._key_security.setStyleSheet("color:%s;" % MUTED)
+        self._key_security.setWordWrap(True)
+        layout.addWidget(self._key_security)
+
         self._data_label = QLabel("数据目录：" + data_dir_display(), self)
         self._data_label.setFont(ui_font(8))
         self._data_label.setStyleSheet("color:%s;" % MUTED)
@@ -1460,6 +1468,21 @@ class SettingsDialog(QDialog):
     def _load(self, settings: Settings) -> None:
         self._key_edit.setText(settings.api_key)
         self._key_edit.setEchoMode(QLineEdit.Password)
+        if settings.key_load_error:
+            self._key_security.setText(
+                "这台电脑解不开已保存的 Key（可能来自另一台电脑），请重新填写。"
+            )
+            self._key_security.setStyleSheet("color:%s;" % DANGER)
+        elif whale_secret.available():
+            self._key_security.setText(
+                "API Key 会用 Windows DPAPI 加密保存，换台电脑或换个 Windows 账号就解不开。"
+            )
+            self._key_security.setStyleSheet("color:#2E9E6B;")
+        else:
+            self._key_security.setText(
+                "当前系统不支持 DPAPI，API Key 会明文保存在 settings.json 里。"
+            )
+            self._key_security.setStyleSheet("color:#B7791F;")
         index = self._model_combo.findData(settings.model)
         self._model_combo.setCurrentIndex(max(0, index))
         self._thinking_switch.setChecked(settings.thinking)
@@ -2107,7 +2130,7 @@ class ChatWindow(QWidget):
         self._pet_thinking(True)
 
         messages = build_messages(self.settings, conversation)
-        snapshot = Settings.from_dict(self.settings.to_dict())
+        snapshot = self.settings.copy()
         worker = ChatWorker(snapshot, messages)
         worker.delta.connect(self._on_delta)
         worker.reasoning.connect(self._on_reasoning)
@@ -2276,7 +2299,10 @@ class ChatWindow(QWidget):
         self.settings = dialog.result_settings
         self._refresh_header()
         self._empty.set_key_missing(not self.settings.has_key())
-        self._show_toast("设置已保存～")
+        if self.settings.has_key() and self.settings.key_encrypted:
+            self._show_toast("设置已保存，API Key 已用 DPAPI 加密")
+        else:
+            self._show_toast("设置已保存～")
 
     def _toggle_thinking(self) -> None:
         self.settings.thinking = not self.settings.thinking

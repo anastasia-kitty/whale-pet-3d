@@ -29,6 +29,7 @@ from whale_api import (  # noqa: E402
 )
 from whale_config import Settings  # noqa: E402
 from whale_markdown import plain_excerpt, render_markdown  # noqa: E402
+import whale_secret  # noqa: E402
 from whale_store import (  # noqa: E402
     Conversation,
     ConversationStore,
@@ -100,6 +101,55 @@ class SettingsTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(settings.masked_key(), "未填写")
         settings.api_key = "sk-1234567890abcdef"
         self.assertEqual(settings.masked_key(), "sk-123…cdef")
+
+    def test_legacy_plaintext_key_still_loads(self) -> None:
+        (self.tmp_path / "settings.json").write_text(
+            json.dumps({"api_key": "sk-old-plaintext", "model": "deepseek-flash"}),
+            encoding="utf-8",
+        )
+        settings = Settings.load()
+        self.assertEqual(settings.api_key, "sk-old-plaintext")
+        self.assertFalse(settings.key_encrypted)
+        self.assertFalse(settings.key_load_error)
+
+    def test_corrupt_encrypted_key_is_reported(self) -> None:
+        (self.tmp_path / "settings.json").write_text(
+            json.dumps({"api_key_enc": "AAAA", "model": "deepseek-flash"}),
+            encoding="utf-8",
+        )
+        settings = Settings.load()
+        self.assertEqual(settings.api_key, "")
+        self.assertTrue(settings.key_load_error)
+
+    @unittest.skipUnless(whale_secret.available(), "Windows DPAPI not available")
+    def test_key_is_encrypted_on_disk(self) -> None:
+        settings = Settings()
+        settings.api_key = "sk-secret-1234567890"
+        settings.save()
+
+        raw_text = (self.tmp_path / "settings.json").read_text(encoding="utf-8")
+        raw = json.loads(raw_text)
+        self.assertNotIn("api_key", raw)
+        self.assertIn("api_key_enc", raw)
+        self.assertEqual(raw.get("api_key_store"), "dpapi")
+        self.assertNotIn("sk-secret-1234567890", raw_text)
+        self.assertEqual(Settings.load().api_key, "sk-secret-1234567890")
+
+    @unittest.skipUnless(whale_secret.available(), "Windows DPAPI not available")
+    def test_dpapi_round_trip(self) -> None:
+        token = whale_secret.protect("sk-round-trip")
+        self.assertIsNotNone(token)
+        assert token is not None
+        self.assertNotIn("sk-round-trip", token)
+        self.assertEqual(whale_secret.unprotect(token), "sk-round-trip")
+
+    @unittest.skipUnless(whale_secret.available(), "Windows DPAPI not available")
+    def test_settings_copy_keeps_key(self) -> None:
+        settings = Settings()
+        settings.api_key = "sk-copy"
+        copied = settings.copy()
+        self.assertEqual(copied.api_key, "sk-copy")
+        self.assertEqual(copied.model, settings.model)
 
 
 class StoreTests(TempDirMixin, unittest.TestCase):

@@ -293,7 +293,7 @@ class KeyTestWorker(QThread):
                 pass
 
     def run(self) -> None:
-        snapshot = Settings.from_dict(self.settings.to_dict())
+        snapshot = self.settings.copy()
         snapshot.thinking = False
         payload = {
             "model": snapshot.model,

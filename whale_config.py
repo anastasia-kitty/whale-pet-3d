@@ -21,6 +21,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import whale_secret
+
 APP_NAME = "DeepSeekWhalePet"
 
 API_BASE_URL = "https://api.deepseek.com"
@@ -158,6 +160,9 @@ class Settings:
         self.max_context_chars = 120000         # type: int
         self.chat_position = None               # type: Optional[list]
         self.first_run_done = False             # type: bool
+        # 以下两个只在内存里用，不写进 JSON
+        self.key_encrypted = False              # type: bool
+        self.key_load_error = False             # type: bool
 
     # ------------------------------------------------------------------
     # 序列化
@@ -165,8 +170,23 @@ class Settings:
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Settings":
         settings = cls()
+
+        encrypted = raw.get("api_key_enc")
+        if isinstance(encrypted, str) and encrypted.strip():
+            decrypted = whale_secret.unprotect(encrypted.strip())
+            if decrypted is None:
+                settings.key_load_error = True
+                # 密文解不开时，如果同一份文件里还有旧的明文 Key，就先用明文
+                legacy = raw.get("api_key")
+                if isinstance(legacy, str):
+                    settings.api_key = legacy
+            else:
+                settings.api_key = decrypted
+                settings.key_encrypted = True
+        elif "api_key" in raw and raw["api_key"] is not None:
+            settings.api_key = str(raw["api_key"] or "")
+
         for key in (
-            "api_key",
             "base_url",
             "model",
             "system_prompt",
@@ -196,8 +216,7 @@ class Settings:
         return settings
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "api_key": self.api_key,
+        payload = {
             "base_url": self.base_url,
             "model": self.model,
             "thinking": self.thinking,
@@ -206,7 +225,36 @@ class Settings:
             "max_context_chars": self.max_context_chars,
             "chat_position": self.chat_position,
             "first_run_done": self.first_run_done,
-        }
+        }  # type: Dict[str, Any]
+
+        token = whale_secret.protect(self.api_key) if self.api_key else None
+        if token:
+            payload["api_key_enc"] = token
+            payload["api_key_store"] = "dpapi"
+            self.key_encrypted = True
+        else:
+            payload["api_key"] = self.api_key
+            payload["api_key_store"] = "plain"
+            self.key_encrypted = False
+        return payload
+
+    def copy(self) -> "Settings":
+        """内存内复制，避免为了发一次请求又加密/解密一遍 Key。"""
+        other = Settings()
+        other.api_key = self.api_key
+        other.base_url = self.base_url
+        other.model = self.model
+        other.thinking = self.thinking
+        other.reasoning_effort = self.reasoning_effort
+        other.system_prompt = self.system_prompt
+        other.max_context_chars = self.max_context_chars
+        other.chat_position = (
+            list(self.chat_position) if self.chat_position else None
+        )
+        other.first_run_done = self.first_run_done
+        other.key_encrypted = self.key_encrypted
+        other.key_load_error = self.key_load_error
+        return other
 
     @classmethod
     def load(cls) -> "Settings":

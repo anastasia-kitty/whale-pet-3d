@@ -130,7 +130,7 @@ z = center_z + lift * u²
 
 ![聊天设置](preview_chat_settings.png)
 
-- **API Key**：只保存在本机的 `settings.json` 里，不会上传到除你填写的 API 地址以外的任何地方；
+- **API Key**：只保存在本机；Windows 下会用系统 DPAPI 加密（绑定当前用户和电脑），不会上传到除你填写的 API 地址以外的任何地方；
 - **模型**：`deepseek-flash`（默认，快而省）和 `deepseek-v4-pro`（更强推理）；
 - **深度思考**：开关 + 思考强度（低 / 高 / 最高），关掉后会切换成普通对话；
 - **API 地址**：默认 `https://api.deepseek.com`，用代理或兼容网关时可以改；
@@ -150,10 +150,17 @@ z = center_z + lift * u²
 ```
 
 - 每段对话一个 JSON 文件，方便单独备份；删掉 `conversations` 里的文件就等于删除对话。
-- API Key 以明文保存在本机设置文件里（和大多数桌面客户端一样），不会写进项目仓库；如果介意，可以只在需要时填写，或用完清空。
 - 想彻底重置：退出小鲸鱼后删掉整个 `DeepSeekWhalePet` 文件夹。
 
 > 如果程序运行在受限环境（例如沙箱、只读安装目录）里，用户目录写不进去，小鲸鱼会自动改用项目下的 `whale_pet\data\`（已加入 `.gitignore`，不会被提交），再不行会退到系统临时目录。实际使用的目录会显示在设置弹窗的「数据目录」一行。
+
+### API Key 怎么保护
+
+- Windows 下用系统 **DPAPI** 加密后再写进 `settings.json`，密钥由 Windows 管理，绑定当前 Windows 用户和这台电脑；
+- 把 `settings.json` 拷到另一台电脑、或者换一个 Windows 账号，都解不开；
+- 它防的是「文件被翻到 / 被云同步 / 随项目被分享」，**不能**防已经能以你的身份运行的程序；
+- 非 Windows 或 DPAPI 不可用时，会退化为明文保存，设置弹窗里会明确提示；
+- 不管有没有加密，都不要把 `settings.json` 或 `data\` 提交、打包分享；`.gitignore` 已经忽略了 `data/`。
 
 ## 直接运行（VSCode）
 
@@ -262,6 +269,7 @@ whale_pet/
 ├─ whale_api.py             # DeepSeek 流式接口（标准库 urllib + QThread）
 ├─ whale_store.py           # 对话框 / 历史记录存储
 ├─ whale_config.py          # 设置项与数据目录
+├─ whale_secret.py          # Windows DPAPI 加密 API Key
 ├─ whale_markdown.py        # 轻量 Markdown → Qt 富文本
 ├─ tests/
 │  ├─ test_chat_core.py     # 设置、存储、Markdown、SSE 解析测试
